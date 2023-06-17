@@ -1,0 +1,15 @@
+[package]
+name = "seer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.71"
+crossbeam-channel = "0.5.8"
+tch = "0.13.0"
+tf-demo-parser = { git="https://github.com/demostf/parser" }
+bitbuffer = "0.10.9"
+serde = {version = "1.0.164", features = ["derive"] }
+toml = "0.7.4"

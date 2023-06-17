@@ -6,8 +6,8 @@ use tf_demo_parser::{Demo, demo::{parser::{RawPacketStream, MessageHandler, game
 
 use crate::net::{movement::MovementDetector, Seer, TrainingData};
 
-pub const MOVEMENT_INPUT_SIZE: i64 = 20_000;
-pub const ANGLE_INPUT_SIZE: i64 = 20_000;
+pub const MOVEMENT_INPUT_SIZE: i64 = 2000;
+pub const ANGLE_INPUT_SIZE: i64 = 2000;
 
 mod net;
 

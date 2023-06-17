@@ -4,7 +4,7 @@ Seer is a project of mine focused around AI assisted anti-cheats
 This is the TF2 version (Not ready!)
 
 ## Why
-I saw the work done by MegaScatterBomb (https://github.com/megascatterbomb/MegaAntiCheat), and decided to port and open-source my Seer anti-cheat, originally developed for Minecraft.
+I saw the work done by [MegaScatterBomb](https://github.com/megascatterbomb), and decided to port and open-source my Seer anti-cheat, originally developed for Minecraft.
 
 ## I wanna run this NOW!
 Please Don't! Seer is a massive machine learning model, I've attempted to scale it down in the TF2 version
@@ -14,7 +14,7 @@ I'm not sure how MegaScatterBomb wants things done and I'm not sure about TF2 de
 If you choose to run this, Good luck! Training takes days to hours AND uses 10-11gb of memory!
 
 ## Notes
-Some of the Demo parsing I stole from (MegaAntiCheat)[https://github.com/megascatterbomb/MegaAntiCheat], Sorry!
+Some of the Demo parsing I stole from [MegaAntiCheat](https://github.com/megascatterbomb/MegaAntiCheat), Sorry!
 
 I wasn't sure how to handle the Steam ID, so if Seer were to be trained, it would expect the Steam ID format to be the same as in the demo files.
 

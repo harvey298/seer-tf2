@@ -1,0 +1,9 @@
+demo_file = "./training_data/demos/demo1.dem" # Path to the demo file
+
+cheater = false # Set to true if a cheater is in the match
+
+# A list of steam IDs, if there are no cheaters don't include this line!
+cheater_steam_id = []
+
+# Prevents Seer from using this label
+exclude = false

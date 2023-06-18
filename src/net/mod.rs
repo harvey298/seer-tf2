@@ -1,11 +1,13 @@
-use std::{fs, collections::{HashMap, VecDeque}, path::Path, time::Instant};
+use std::{fs, collections::{HashMap, VecDeque}, path::Path, time::Instant, rc::Rc, thread::spawn};
 
 use anyhow::Result;
 use crossbeam_channel::unbounded;
+use crypto_hash::{hex_digest, Algorithm};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Serialize, Deserialize};
 use tch::{Tensor, nn::{Module, VarStore}};
 use tf_demo_parser::{Demo, DemoParser, demo::{parser::gamestateanalyser::GameStateAnalyser, vector::Vector}};
+use uuid::Uuid;
 
 use crate::{ANGLE_INPUT_SIZE, MOVEMENT_INPUT_SIZE};
 
@@ -39,16 +41,50 @@ impl Seer {
         println!("Training...");
 
         for data in training_data {
+
+            let demo_file_path = &data.demo_file;
             
             // Open the demo file
-            let tensors = demo_to_tensor(&data.demo_file, None);
+            let tensors: Vec<PlayerDemoTensor> = demo_to_tensor(&demo_file_path, None);
             let batches = tensors.len();
+
+            let path = data.demo_file.replace("\\", "/");
+            let path = path.replace(".dem", ".replay");
+
+            if !Path::new(&path).exists() {
+
+                let steam_ids = data.clone().cheater_steam_id.unwrap_or(Vec::new());
+
+                let demo_file_path = demo_file_path.clone();
+                
+                spawn(move || {
+                    let data: Vec<PlayerDemoTensor> = demo_to_tensor(&demo_file_path, None);
+                    let steam_ids = steam_ids.clone();
+
+                    let mut buffer = Vec::new();
+
+                    for tensor in data.clone() {
+                        let cheating = steam_ids.contains(&tensor.steam_id);
+
+                        let mut new_tensor = tensor.clone();
+                        new_tensor.cheating = cheating;
+                        new_tensor.steam_id = Uuid::new_v4().to_string();
+
+                        buffer.push(new_tensor);
+                    }
+
+                    save_replay(buffer, &path, &steam_ids).unwrap();
+                });
+    
+            }
 
             for (index, tensor) in tensors.into_iter().enumerate() {
                 
                 println!("Training on a batch {index}/{batches}...");
+
                 let cheating = data.cheater_steam_id.clone().unwrap_or(Vec::new()).contains(&tensor.steam_id);
                 let label = Tensor::from_slice(&[if cheating { 1.0 } else { 0.0 }]);
+
                 
                 // TODO: Make test data and labels actualy work
                 for look_tensor in tensor.look_tensors {
@@ -59,7 +95,7 @@ impl Seer {
                     self.movement.train(&position_tensor, &label, &label, &label, 32)?;
                 }
 
-            }           
+            }
 
         }
 
@@ -77,9 +113,15 @@ impl Seer {
         Ok(())
     }
 
+    /// Scans a demo
+    /// Will convert the demo into a Seer replay (a json file)
     pub fn scan_demo(&self, path: &str) -> Result<()> {
 
-        let data = demo_to_tensor(path, None);
+        let path = if Path::new(&path.replace(".dem", ".replay")).exists() {
+            path.replace(".dem", ".replay")
+        } else { path.to_string() };
+
+        let data: Vec<PlayerDemoTensor> = demo_to_tensor(&path, None);
 
         for player in &data {
 
@@ -91,7 +133,7 @@ impl Seer {
 
             let mut movement_results = Vec::new();
             for position_tensor in &player.position_tensors {
-                println!("Working on batch");
+                // println!("Working on batch");
                 let movement_result = tensor_to_vec(self.movement.forward(&position_tensor));
                 movement_results.push(movement_result.first().unwrap().clone());
             }
@@ -108,11 +150,21 @@ impl Seer {
             println!("{id}: {movement_result} | {look_result}");
         }
 
+        let path = path.replace(".dem", ".replay");
+        if !Path::new(&path).exists() {
+
+            save_replay(data, &path, &[])?;
+
+        }
+        
         Ok(())
     }
+
+
 }
 
 fn open_demo(path: &str) -> Result<HashMap<String, Vec<Player>>> {
+
     let file = fs::read(path).unwrap();
 
     let demo = Demo::new(&file);
@@ -177,7 +229,21 @@ fn open_demo(path: &str) -> Result<HashMap<String, Vec<Player>>> {
 /// TODO: Make this return a Result
 /// if player is None it will turn every player into their own tensor, if player is not None it turn the selected player into a tensor
 /// Player would be a steam id
+/// This will convert the demo file into a one quickly usable by Seer (will maintain the originial)
 fn demo_to_tensor(path: &str, players: Option<&[String]>) -> Vec<PlayerDemoTensor> {
+
+    let rply_path = path.replace("\\", "/");
+    let rply_path = rply_path.replace(".dem", ".replay");
+
+    // Assume that its saved as a PlayerDemoTensorSaveAble
+    if path.contains(".replay") || Path::new(&rply_path).exists() {
+        let data: SeerDemo = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+
+        let out = data.data.into_iter().map(|f | { PlayerDemoTensor::from_saveable(f) }).collect();
+
+        return out;
+    }
+
     let mut player_buffer = open_demo(path).unwrap();
     let work_start = Instant::now();
 
@@ -209,7 +275,7 @@ fn demo_to_tensor(path: &str, players: Option<&[String]>) -> Vec<PlayerDemoTenso
         let mut batches = 0;
         let mut last_movement_batch = Vec::new();
         let mut last_look_batch = Vec::new();
-        println!("Working On: {steam_id}");
+        // println!("Working On: {steam_id}");
         while !finished {
             // let batch_start = Instant::now();
             // println!("Working on batch: {batches}");
@@ -258,7 +324,7 @@ fn demo_to_tensor(path: &str, players: Option<&[String]>) -> Vec<PlayerDemoTenso
             while !(movement_buffer.len() >= MOVEMENT_INPUT_SIZE as usize) { movement_buffer.push(0.0);finished = true; }
 
             if last_movement_batch==movement_buffer && last_look_batch==look_buffer {
-                println!("Ending Batch Early! (Duplicate data!)");
+                // println!("Ending Batch Early! (Duplicate data!)");
                 finished = true;
             }
 
@@ -282,11 +348,12 @@ fn demo_to_tensor(path: &str, players: Option<&[String]>) -> Vec<PlayerDemoTenso
             steam_id: steam_id.to_string(),
             look_tensors,
             position_tensors,
+            cheating: false,
         }).unwrap();
     };
 
-    let elapsed_time = work_start.elapsed().as_secs();
-    println!("Work Ended! Took {elapsed_time}s");
+    let _elapsed_time = work_start.elapsed().as_secs();
+    // println!("Work Ended! Took {elapsed_time}s");
 
     for _ in 0..rx.len() {
         results.push(rx.recv().unwrap());
@@ -301,8 +368,18 @@ fn demo_to_tensor(path: &str, players: Option<&[String]>) -> Vec<PlayerDemoTenso
 /// Represents a Player as tensors (batch tensors of length defined in main.rs)
 pub struct PlayerDemoTensor {
     pub steam_id: String,
+    pub cheating: bool,
     pub position_tensors: Vec<Tensor>,
     pub look_tensors: Vec<Tensor>
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents a Player as tensors (batch tensors of length defined in main.rs) - Save able to the file system
+pub struct PlayerDemoTensorSaveAble {
+    pub steam_id: String,
+    pub cheating: bool,
+    pub position_tensors: Vec<Vec<f64>>,
+    pub look_tensors: Vec<Vec<f64>>
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -340,3 +417,72 @@ pub fn tensor_to_vec(tensor: Tensor) -> Vec<f64> {
 
     data
 }
+
+impl PlayerDemoTensor {
+    pub fn to_saveable(self) -> PlayerDemoTensorSaveAble {
+        PlayerDemoTensorSaveAble {
+            steam_id: self.steam_id.clone(),
+            position_tensors: self.position_tensors.into_iter().map(tensor_to_vec).collect(),
+            look_tensors: self.look_tensors.into_iter().map(tensor_to_vec).collect(),
+            cheating: self.cheating,
+        }
+    }
+
+    pub fn from_saveable(data: PlayerDemoTensorSaveAble) -> Self {
+        PlayerDemoTensor {
+            steam_id: data.steam_id,
+            position_tensors: data.position_tensors.into_iter().map(|data| Tensor::from_slice(&data) ).collect(),
+            look_tensors: data.look_tensors.into_iter().map(|data| Tensor::from_slice(&data) ).collect(),
+            cheating: data.cheating,
+        }
+    }
+}
+
+/// Seer's version of a demo file
+/// TODO: Anon support
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeerDemo {
+    pub cheater_steam_id: Vec<String>,
+    pub data: Vec<PlayerDemoTensorSaveAble>
+}
+
+fn save_replay(data: Vec<PlayerDemoTensor>, path: &str, cheater_steam_ids: &[String]) -> Result<()> {
+
+    let mut buffer = Vec::new();
+    for item in data {
+
+        let item = item.to_saveable();
+        buffer.push(item);
+    }
+
+    // let data: Vec<PlayerDemoTensorSaveAble> = data.into_iter().map(|player| player.to_saveable()).collect();
+    
+    let data = SeerDemo {
+        data: buffer,
+        cheater_steam_id: cheater_steam_ids.to_vec(),
+    };
+    let data = serde_json::to_string(&data).unwrap();
+    fs::write(path, data).unwrap();
+
+    Ok(())
+}
+
+impl Clone for PlayerDemoTensor {
+    fn clone(&self) -> Self {
+        let mut position_tensors: Vec<Tensor> = Vec::new();
+        for tensor in &self.position_tensors {
+            let new_tensor = tensor.clone(&tensor);
+            position_tensors.push(new_tensor)
+        }
+
+        let mut look_tensors: Vec<Tensor> = Vec::new();
+        for tensor in &self.look_tensors {
+            let new_tensor = tensor.clone(&tensor);
+            look_tensors.push(new_tensor)
+        }
+
+        Self { steam_id: self.steam_id.clone(), position_tensors: position_tensors, look_tensors: look_tensors, cheating: self.cheating.clone() }
+    }
+}
+
+pub fn hash_data(data: &[u8]) -> String { hex_digest(Algorithm::SHA256, data) }

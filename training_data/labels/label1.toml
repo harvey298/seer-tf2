@@ -1,4 +1,4 @@
-demo_file = "./training_data/demos/demo1.dem" # Path to the demo file
+demo_file = "./training_data/demos/demo1.replay" # Path to the demo file
 
 cheater = false # Set to true if a cheater is in the match
 

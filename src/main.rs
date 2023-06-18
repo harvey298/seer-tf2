@@ -1,13 +1,12 @@
 use std::{fs, path::Path};
 
-
 use tch::{Tensor, Device, Kind, nn::Module};
 use tf_demo_parser::{Demo, demo::{parser::{RawPacketStream, MessageHandler, gamestateanalyser::GameStateAnalyser}, header::Header, message::Message, data::DemoTick, gamevent::GameEvent, vector::Vector}, DemoParser, ParserState, MessageType};
 
 use crate::net::{movement::MovementDetector, Seer, TrainingData};
 
-pub const MOVEMENT_INPUT_SIZE: i64 = 2000;
-pub const ANGLE_INPUT_SIZE: i64 = 2000;
+const MOVEMENT_INPUT_SIZE: i64 = 2000;
+const ANGLE_INPUT_SIZE: i64 = 2000;
 
 mod net;
 
